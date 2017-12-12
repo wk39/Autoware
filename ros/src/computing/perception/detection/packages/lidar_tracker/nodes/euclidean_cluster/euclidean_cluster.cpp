@@ -833,6 +833,15 @@ void removePointsUpTo(const pcl::PointCloud<pcl::PointXYZ>::Ptr in_cloud_ptr, pc
 
 void velodyne_callback(const sensor_msgs::PointCloud2ConstPtr& in_sensor_cloud)
 {
+
+#define BASE_LINK_COORDINATE 1
+
+#if BASE_LINK_COORDINATE
+      tf::TransformListener transform_listener__;
+      static tf::StampedTransform transform2base_link;
+      pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud_ptr (new pcl::PointCloud<pcl::PointXYZ>);
+#endif
+
 	_start = std::chrono::system_clock::now(); // 計測開始時間
 
 	if (!_using_sensor_cloud)
@@ -856,6 +865,27 @@ void velodyne_callback(const sensor_msgs::PointCloud2ConstPtr& in_sensor_cloud)
 		jsk_rviz_plugins::PictogramArray pictograms_array;
 
 		pcl::fromROSMsg(*in_sensor_cloud, *current_sensor_cloud_ptr);
+
+
+        #if BASE_LINK_COORDINATE
+        try
+        {
+            ros::Time now = ros::Time(0);
+            transform_listener__.waitForTransform("/base_link", "/velodyne", now, ros::Duration(10.0));
+            transform_listener__.lookupTransform("/base_link", "/velodyne", now, transform2base_link);
+        }
+        catch (tf::TransformException& ex)
+        {
+            ROS_ERROR("%s", ex.what());
+        }
+
+        pcl_ros::transformPointCloud(*current_sensor_cloud_ptr, *current_sensor_cloud_ptr, transform2base_link);
+        #endif
+
+
+
+
+
 
 		_velodyne_header = in_sensor_cloud->header;
 
@@ -881,12 +911,22 @@ void velodyne_callback(const sensor_msgs::PointCloud2ConstPtr& in_sensor_cloud)
 		if(_remove_ground)
 		{
 			removeFloor(inlanes_cloud_ptr, nofloor_cloud_ptr, onlyfloor_cloud_ptr);
+            #if BASE_LINK_COORDINATE
+            pcl_ros::transformPointCloud(*onlyfloor_cloud_ptr, *temp_cloud_ptr, transform2base_link.inverse());
+			publishCloud(&_pub_ground_cloud, temp_cloud_ptr);
+            #else
 			publishCloud(&_pub_ground_cloud, onlyfloor_cloud_ptr);
+            #endif
 		}
 		else
 			nofloor_cloud_ptr = inlanes_cloud_ptr;
 
+        #if BASE_LINK_COORDINATE
+        pcl_ros::transformPointCloud(*nofloor_cloud_ptr, *temp_cloud_ptr, transform2base_link.inverse());
+        publishCloud(&_pub_ground_cloud, temp_cloud_ptr);
+        #else
 		publishCloud(&_pub_points_lanes_cloud, nofloor_cloud_ptr);
+        #endif
 
 		if (_use_diffnormals)
 			differenceNormalsSegmentation(nofloor_cloud_ptr, diffnormals_cloud_ptr);
@@ -894,6 +934,12 @@ void velodyne_callback(const sensor_msgs::PointCloud2ConstPtr& in_sensor_cloud)
 			diffnormals_cloud_ptr = nofloor_cloud_ptr;
 
 		segmentByDistance(diffnormals_cloud_ptr, colored_clustered_cloud_ptr, boundingbox_array, centroids, cloud_clusters, polygon_array, pictograms_array);
+
+
+        #if BASE_LINK_COORDINATE
+        pcl_ros::transformPointCloud(*colored_clustered_cloud_ptr, *colored_clustered_cloud_ptr, transform2base_link.inverse());
+        #endif
+
 
 		publishColorCloud(&_pub_cluster_cloud, colored_clustered_cloud_ptr);
 
