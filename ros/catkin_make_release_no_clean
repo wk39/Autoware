@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -e
+
+source devel/setup.bash
+
+export LIBRARY_PATH=/usr/lib/OpenNI2/Drivers:$LIBRARY_PATH
+catkin_make -DCMAKE_BUILD_TYPE=Release $@

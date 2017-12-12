@@ -133,7 +133,7 @@ static double min_add_scan_shift = 1.0;
 static double max_submap_size = 100.0;
 
 static double _tf_x, _tf_y, _tf_z, _tf_roll, _tf_pitch, _tf_yaw;
-static Eigen::Matrix4f tf_btol, tf_ltob;
+static Eigen::Matrix4f tf_btol, tf_ltob, tf_ltob2;
 
 static bool isMapUpdate = true;
 static bool _use_openmp = false;
@@ -152,6 +152,7 @@ static double submap_size = 0.0;
 static sensor_msgs::Imu imu;
 static nav_msgs::Odometry odom;
 
+std::ofstream ndt_log;
 static void param_callback(const autoware_msgs::ConfigApproximateNdtMapping::ConstPtr& input)
 {
 
@@ -486,7 +487,24 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   // Add initial point cloud to velodyne_map
   if (initial_scan_loaded == 0)
   {
+    std::cout << "INIT..." << std::endl;
+    std::cout << tf_btol << std::endl;
+
+#if 1
+    Eigen::AngleAxisf irx(current_pose.roll, Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf iry(current_pose.pitch, Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf irz(current_pose.yaw, Eigen::Vector3f::UnitZ());
+
+    Eigen::Translation3f itl(current_pose.x, current_pose.y, current_pose.z);
+
+    Eigen::Matrix4f tf_l2map =
+          (itl * irz * iry * irx).matrix() * tf_btol;
+
+    pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, tf_l2map);
+#else
     pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, tf_btol);
+#endif
+
     map += *transformed_scan_ptr;
     initial_scan_loaded = 1;
   }
@@ -503,11 +521,11 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   ndt.setStepSize(step_size);
   ndt.setResolution(ndt_res);
   ndt.setMaximumIterations(max_iter);
-  ndt.setInputSource(filtered_scan_ptr);
+  ndt.setInputSource(filtered_scan_ptr);  // InputSource : scan
 
   if (isMapUpdate == true)
   {
-    ndt.setInputTarget(map_ptr);
+    ndt.setInputTarget(map_ptr);    // InputTarget : Map
     isMapUpdate = false;
   }
 
@@ -543,8 +561,10 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 
   Eigen::Translation3f init_translation(guess_pose_for_ndt.x, guess_pose_for_ndt.y, guess_pose_for_ndt.z);
 
-  Eigen::Matrix4f init_guess =
+  Eigen::Matrix4f init_guess =      // lidar -> map                                                                  
       (init_translation * init_rotation_z * init_rotation_y * init_rotation_x).matrix() * tf_btol;
+  // init_guess should be   lidar's orientation based on map  Tl->map
+  // Tb->map * Tl->b ==> Tl->map
 
   t3_end = ros::Time::now();
   d3 = t3_end - t3_start;
@@ -568,7 +588,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 #endif
 
   t_localizer = ndt.getFinalTransformation();
-  t_base_link = t_localizer * tf_ltob;
+  //t_base_link = t_localizer * tf_ltob;
+  t_base_link = t_localizer * tf_ltob2;              // Tb->map  =  Tl->map * Tb->l
 
   pcl::transformPointCloud(*scan_ptr, *transformed_scan_ptr, t_localizer);
 
@@ -587,7 +608,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
                  static_cast<double>(t_base_link(2, 2)));
 
   // Update localizer_pose.
-  localizer_pose.x = t_localizer(0, 3);
+  localizer_pose.x = t_localizer(0, 3);     // lidar -> map
   localizer_pose.y = t_localizer(1, 3);
   localizer_pose.z = t_localizer(2, 3);
   mat_l.getRPY(localizer_pose.roll, localizer_pose.pitch, localizer_pose.yaw, 1);
@@ -754,6 +775,45 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   std::cout << "shift: " << shift << std::endl;
   std::cout << "current submap size: " << submap_size << std::endl;
   std::cout << "-----------------------------------------------------------------" << std::endl;
+
+
+
+
+  ros::Time t_scan = input->header.stamp;
+
+  ndt_log.precision(17);
+
+  ndt_log << std::fixed << t_scan.toSec()
+      << ", " << t_scan.sec
+      << ", " << t_scan.nsec
+
+      << ", " << current_pose.x                 // base_link -> map
+      << ", " << current_pose.y
+      << ", " << current_pose.z
+      << ", " << current_pose.roll
+      << ", " << current_pose.pitch
+      << ", " << current_pose.yaw
+
+      << ", " << localizer_pose.x               // localizer(lidar) -> map
+      << ", " << localizer_pose.y
+      << ", " << localizer_pose.z
+      << ", " << localizer_pose.roll
+      << ", " << localizer_pose.pitch
+      << ", " << localizer_pose.yaw
+
+      << ", " << _tf_x                          // localizer(lidar) -> base_link
+      << ", " << _tf_y
+      << ", " << _tf_z
+      << ", " << _tf_roll
+      << ", " << _tf_pitch
+      << ", " << _tf_yaw
+
+      //<< ", " << 
+      //<< ", " << 
+      //<< ", " << 
+      << std::endl;
+
+
 }
 
 int main(int argc, char** argv)
@@ -882,13 +942,31 @@ int main(int argc, char** argv)
   Eigen::AngleAxisf rot_x_btol(_tf_roll, Eigen::Vector3f::UnitX());  // rot: rotation
   Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_btol(_tf_yaw, Eigen::Vector3f::UnitZ());
-  tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
+  tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();  // maybe Tl->b
+  std::cout << "btol" << std::endl;
+  //std::cout << tl_btol.matrix() << std::endl;
+  //std::cout << rot_x_btol.matrix() << std::endl;
+  //std::cout << rot_y_btol.matrix() << std::endl;
+  //std::cout << rot_z_btol.matrix() << std::endl;
+  //std::cout << "" << std::endl;
+  std::cout << tf_btol << std::endl;
+  std::cout << "" << std::endl;
+  std::cout << "" << std::endl;
 
   Eigen::Translation3f tl_ltob((-1.0) * _tf_x, (-1.0) * _tf_y, (-1.0) * _tf_z);  // tl: translation
   Eigen::AngleAxisf rot_x_ltob((-1.0) * _tf_roll, Eigen::Vector3f::UnitX());     // rot: rotation
   Eigen::AngleAxisf rot_y_ltob((-1.0) * _tf_pitch, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_ltob((-1.0) * _tf_yaw, Eigen::Vector3f::UnitZ());
-  tf_ltob = (tl_ltob * rot_z_ltob * rot_y_ltob * rot_x_ltob).matrix();
+  tf_ltob = (tl_ltob * rot_z_ltob * rot_y_ltob * rot_x_ltob).matrix();      // maybe Tb->l
+  std::cout << "ltob" << std::endl;
+  std::cout << tf_ltob << std::endl;
+  std::cout << "" << std::endl;
+  std::cout << "" << std::endl;
+
+  tf_ltob2 = (rot_x_ltob * rot_y_ltob * rot_z_ltob *tl_ltob ).matrix();     // Tb->l
+  std::cout << "ltob 2" << std::endl;
+  std::cout << tf_ltob2 << std::endl;
+
 
   map.header.frame_id = "map";
 
@@ -901,7 +979,15 @@ int main(int argc, char** argv)
   ros::Subscriber odom_sub = nh.subscribe("/odom_pose", 100000, odom_callback);
   ros::Subscriber imu_sub = nh.subscribe(_imu_topic, 100000, imu_callback);
 
+
+
+  ndt_log.open("ndt_mapping_result.txt");
+
+
   ros::spin();
+
+
+  ndt_log.close();
 
   return 0;
 }

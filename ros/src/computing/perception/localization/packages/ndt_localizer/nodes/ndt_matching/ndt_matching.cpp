@@ -214,7 +214,7 @@ static autoware_msgs::ndt_stat ndt_stat_msg;
 static double predict_pose_error = 0.0;
 
 static double _tf_x, _tf_y, _tf_z, _tf_roll, _tf_pitch, _tf_yaw;
-static Eigen::Matrix4f tf_btol;
+static Eigen::Matrix4f tf_btol, tf_ltob, tf_ltob2;
 
 static std::string _localizer = "velodyne";
 static std::string _offset = "linear";  // linear, zero, quadratic
@@ -250,6 +250,9 @@ pthread_mutex_t mutex;
 
 static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr& input)
 {
+    std::cout << "###" << std::endl;
+    std::cout << "param_callback ()" << std::endl;
+
   if (_use_gnss != input->init_pos_gnss)
   {
     init_pos_set = 0;
@@ -427,10 +430,32 @@ static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr& input)
     current_velocity_imu_z = current_velocity_z;
     init_pos_set = 1;
   }
+    std::cout << "init_pos_set: " << init_pos_set << std::endl;
+    std::cout << "_use_gnss   : " << _use_gnss    << std::endl;
+    std::cout << "ndt_res     : " << ndt_res      << std::endl;
+    std::cout << "step_size   : " << step_size    << std::endl;
+    std::cout << "trans_eps   : " << trans_eps    << std::endl;
+    std::cout << "max_iter    : " << max_iter     << std::endl;
+    std::cout << "initial_pose.x    : " << initial_pose.x << std::endl;
+    std::cout << "initial_pose.y    : " << initial_pose.y << std::endl;
+    std::cout << "initial_pose.z    : " << initial_pose.z << std::endl;
+    std::cout << "initial_pose.roll : " << initial_pose.roll << std::endl;
+    std::cout << "initial_pose.pitch: " << initial_pose.pitch << std::endl;
+    std::cout << "initial_pose.yaw  : " << initial_pose.yaw << std::endl;
+    std::cout << "current_pose.x    : " << current_pose.x << std::endl;
+    std::cout << "current_pose.y    : " << current_pose.y << std::endl;
+    std::cout << "current_pose.z    : " << current_pose.z << std::endl;
+    std::cout << "current_pose.roll : " << current_pose.roll << std::endl;
+    std::cout << "current_pose.pitch: " << current_pose.pitch << std::endl;
+    std::cout << "current_pose.yaw  : " << current_pose.yaw << std::endl;
 }
 
 static void map_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 {
+    std::cout << "###" << std::endl;
+    std::cout << "map_callback ()" << std::endl;
+    std::cout << "map_loaded: " << map_loaded << std::endl;
+
   // if (map_loaded == 0)
   if (points_map_num != input->width)
   {
@@ -1025,7 +1050,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 
     align_time = std::chrono::duration_cast<std::chrono::microseconds>(align_end - align_start).count() / 1000.0;
 
-    t2 = t * tf_btol.inverse();
+    //t2 = t * tf_btol.inverse();
+    t2 = t * tf_ltob2;                 // base_link     (map<-localizer) * (localizer<-base_link) == (map<-baselink)
 
     getFitnessScore_time =
         std::chrono::duration_cast<std::chrono::microseconds>(getFitnessScore_end - getFitnessScore_start).count() /
@@ -1033,7 +1059,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 
     pthread_mutex_unlock(&mutex);
 
-    tf::Matrix3x3 mat_l;  // localizer
+    tf::Matrix3x3 mat_l;  // map <- localizer
     mat_l.setValue(static_cast<double>(t(0, 0)), static_cast<double>(t(0, 1)), static_cast<double>(t(0, 2)),
                    static_cast<double>(t(1, 0)), static_cast<double>(t(1, 1)), static_cast<double>(t(1, 2)),
                    static_cast<double>(t(2, 0)), static_cast<double>(t(2, 1)), static_cast<double>(t(2, 2)));
@@ -1044,7 +1070,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     localizer_pose.z = t(2, 3);
     mat_l.getRPY(localizer_pose.roll, localizer_pose.pitch, localizer_pose.yaw, 1);
 
-    tf::Matrix3x3 mat_b;  // base_link
+    tf::Matrix3x3 mat_b;  // map <- base_link
     mat_b.setValue(static_cast<double>(t2(0, 0)), static_cast<double>(t2(0, 1)), static_cast<double>(t2(0, 2)),
                    static_cast<double>(t2(1, 0)), static_cast<double>(t2(1, 1)), static_cast<double>(t2(1, 2)),
                    static_cast<double>(t2(2, 0)), static_cast<double>(t2(2, 1)), static_cast<double>(t2(2, 2)));
@@ -1561,6 +1587,10 @@ int main(int argc, char** argv)
   Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_btol(_tf_yaw, Eigen::Vector3f::UnitZ());
   tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
+
+  std::cout << "ltob 2 (inverse)" << std::endl;
+  tf_ltob2 = tf_btol.inverse();
+  std::cout << tf_btol.inverse() << std::endl;
 
   // Updated in initialpose_callback or gnss_callback
   initial_pose.x = 0.0;
