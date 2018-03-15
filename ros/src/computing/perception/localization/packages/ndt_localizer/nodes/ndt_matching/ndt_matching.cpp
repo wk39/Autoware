@@ -65,6 +65,12 @@
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
 
+
+// wook; temporary work... disable cuda, fast_pcl - cuda error after resume from sleep/hibernation
+#undef USE_FAST_PCL
+#undef CUDA_FOUND
+
+
 #ifdef USE_FAST_PCL
   #include <fast_pcl/registration/ndt.h>
 #else
