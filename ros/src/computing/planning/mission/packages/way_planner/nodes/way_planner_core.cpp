@@ -115,8 +115,13 @@ if(m_params.bEnableHMI)
 
 	//if(m_params.bEnableRvizInput)
 	{
+#if WK_MODIFICATION
 		sub_start_pose 	= nh.subscribe("/initialpose", 					1, &way_planner_core::callbackGetStartPose, 		this);
 		sub_goal_pose 	= nh.subscribe("move_base_simple/goal", 		1, &way_planner_core::callbackGetGoalPose, 		this);
+#else
+		sub_start_pose 	= nh.subscribe("/initialpose", 					1, &way_planner_core::callbackGetStartPose_wk, 		this);
+		sub_goal_pose 	= nh.subscribe("move_base_simple/goal", 		1, &way_planner_core::callbackGetGoalPose_wk, 		this);
+#endif
 	}
 //	else
 //	{
@@ -151,6 +156,73 @@ if(m_params.bEnableHMI)
 way_planner_core::~way_planner_core(){
 }
 
+#if WK_MODIFICATION
+void way_planner_core::callbackGetGoalPose_wk(const geometry_msgs::PoseStampedConstPtr &msg)
+{
+	PlannerHNS::WayPoint wp;
+
+	tf::StampedTransform transform;
+	GetTransformFromTF("map", msg->header.frame_id, transform);      // world -> map
+
+    // position
+    tf::Vector3 v_org(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);   // msg in world coordinate
+    tf::Vector3 v_map = transform*v_org;
+
+    // orientation
+    tf::Quaternion q_org( msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z, msg->pose.orientation.w);
+    tf::Quaternion q_map = transform*q_org;
+    q_map.normalize();
+
+
+    // 
+	wp = PlannerHNS::WayPoint(
+            v_map.x(), 
+            v_map.y(),
+            v_map.z(),
+            tf::getYaw(q_map));
+
+#if 0
+    ROS_INFO("callbackGetGoalPose_wk");
+    ROS_INFO_STREAM(transform.getOrigin());
+    ROS_INFO("msg pos : %8.1f %8.1f %8.1f", 
+            v_org.x(),
+            v_org.y(),
+            v_org.z());
+    ROS_INFO("msg qua : %8.3f %8.3f %8.3f %8.3f", 
+            q_org.x(),
+            q_org.y(),
+            q_org.z(),
+            q_org.w());
+    ROS_INFO("final pos : %8.1f %8.1f %8.1f", 
+            v_map.x(),
+            v_map.y(),
+            v_map.z());
+    ROS_INFO("final qua : %8.3f %8.3f %8.3f %8.3f", 
+            q_map.x(),
+            q_map.y(),
+            q_map.z(),
+            q_map.w());
+
+    ROS_INFO("yaw transform: %.3f, direction: %.3f", 
+            tf::getYaw(transform.getRotation()),
+            tf::getYaw(q_org));
+#endif
+
+
+	if(m_GoalsPos.size()==0)
+	{
+		ROS_INFO("Can Not add Goal, Select Start Position Fist !");
+	}
+	else
+	{
+		m_GoalsPos.push_back(wp);
+        m_iCurrentGoalIndex = m_GoalsPos.size()-1;
+    ROS_INFO("Received Goal Pose");
+	}
+
+}
+#endif
+
 void way_planner_core::callbackGetGoalPose(const geometry_msgs::PoseStampedConstPtr &msg)
 {
 	PlannerHNS::WayPoint wp;
@@ -167,6 +239,41 @@ void way_planner_core::callbackGetGoalPose(const geometry_msgs::PoseStampedConst
 		ROS_INFO("Received Goal Pose");
 	}
 }
+
+#if WK_MODIFICATION
+void way_planner_core::callbackGetStartPose_wk(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg)
+{
+	PlannerHNS::WayPoint wp;
+
+	tf::StampedTransform transform;
+	GetTransformFromTF("map", msg->header.frame_id, transform);      // world -> map
+
+    // position
+    tf::Vector3 v_org(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);   // msg in world coordinate
+    tf::Vector3 v_map = transform*v_org;
+
+    // orientation
+    tf::Quaternion q_org( msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+    tf::Quaternion q_map = transform*q_org;
+    q_map.normalize();
+
+
+    // 
+	m_CurrentPose = PlannerHNS::WayPoint(
+            v_map.x(), 
+            v_map.y(),
+            v_map.z(),
+            tf::getYaw(q_map));
+
+
+	//if(m_GoalsPos.size() <= 1)
+	//{
+		m_GoalsPos.clear();
+		m_GoalsPos.push_back(m_CurrentPose);
+		ROS_INFO("Received Start pose");
+	//}
+}
+#endif
 
 void way_planner_core::callbackGetStartPose(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg)
 {
@@ -399,14 +506,14 @@ bool way_planner_core::GenerateGlobalPlan(PlannerHNS::WayPoint& startPoint, Plan
 					m_Map, generatedTotalPaths);
 #endif
 
-if(m_params.bEnableHMI)
-{
-	for(unsigned int im = 0; im < m_ModifiedWayPointsCosts.size(); im++)
-		m_ModifiedWayPointsCosts.at(im)->actionCost.at(0).second = 0;
+    if(m_params.bEnableHMI)
+    {
+        for(unsigned int im = 0; im < m_ModifiedWayPointsCosts.size(); im++)
+            m_ModifiedWayPointsCosts.at(im)->actionCost.at(0).second = 0;
 
-	m_ModifiedWayPointsCosts.clear();
-}
-	if(ret == 0) generatedTotalPaths.clear();
+        m_ModifiedWayPointsCosts.clear();
+    }
+    if(ret == 0) generatedTotalPaths.clear();
 
 
 	if(generatedTotalPaths.size() > 0 && generatedTotalPaths.at(0).size()>0)
@@ -710,6 +817,8 @@ void way_planner_core::PlannerMainLoop()
 
 		if(m_GoalsPos.size() > 1)
 		{
+            //ROS_INFO("MainLoop - size %d, index %d", m_GoalsPos.size(), m_iCurrentGoalIndex);
+
 			//std::cout << m_CurrentPose.pos.ToString() << std::endl;
 			PlannerHNS::WayPoint startPoint = m_CurrentPose;
 			PlannerHNS::WayPoint goalPoint = m_GoalsPos.at(m_iCurrentGoalIndex);

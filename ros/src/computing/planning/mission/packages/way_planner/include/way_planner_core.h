@@ -71,6 +71,9 @@
 namespace WayPlannerNS {
 
 
+#define WK_MODIFICATION 1
+
+
 #define MAX_GLOBAL_PLAN_DISTANCE 10000
 #define _ENABLE_VISUALIZE_PLAN
 #define REPLANNING_DISTANCE 25
@@ -191,6 +194,10 @@ private:
   void GetTransformFromTF(const std::string parent_frame, const std::string child_frame, tf::StampedTransform &transform);
 
   // Callback function for subscriber.
+#if WK_MODIFICATION
+  void callbackGetGoalPose_wk(const geometry_msgs::PoseStampedConstPtr &msg);
+  void callbackGetStartPose_wk(const geometry_msgs::PoseWithCovarianceStampedConstPtr &input);
+#endif
   void callbackGetGoalPose(const geometry_msgs::PoseStampedConstPtr &msg);
   void callbackGetStartPose(const geometry_msgs::PoseWithCovarianceStampedConstPtr &input);
   void callbackGetCurrentPose(const geometry_msgs::PoseStampedConstPtr& msg);
