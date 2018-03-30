@@ -115,7 +115,7 @@ void RosHelpers::ConvertFromRoadNetworkToAutowareVisualizeMapFormat(const Planne
 			RosHelpers::ConvertFromPlannerHToAutowarePathFormat(map.roadSegments.at(i).Lanes.at(j).points, map_lane_array);
 
 	std_msgs::ColorRGBA total_color;
-	total_color.r = 1;
+	total_color.r = 1;                  // orange...
 	total_color.g = 0.5;
 	total_color.b = 0.3;
 	total_color.a = 0.85;
@@ -472,7 +472,7 @@ void RosHelpers::createGlobalLaneArrayOrientationMarker(const autoware_msgs::Lan
     	}
     	else
     	{
-    		lane_waypoint_marker.color.r = 1.0;
+    		lane_waypoint_marker.color.r = 1.0;         // purple
 			lane_waypoint_marker.color.g = 0.0;
 			lane_waypoint_marker.color.b = 1.0;
 			tmp_marker_array.markers.push_back(lane_waypoint_marker);

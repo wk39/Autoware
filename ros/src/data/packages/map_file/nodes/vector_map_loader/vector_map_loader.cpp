@@ -110,6 +110,7 @@ using vector_map::isValidMarker;
 using vector_map::createVectorMarker;
 using vector_map::createAreaMarker;
 using vector_map::createPoleMarker;
+using vector_map::createLineMarker;
 
 namespace
 {
@@ -145,6 +146,31 @@ visualization_msgs::Marker createLinkedLineMarker(const std::string& ns, int id,
   area.aid = 1; // must set valid aid
   area.slid = line.lid;
   return createAreaMarker(ns, id, color, vmap, area);
+}
+
+visualization_msgs::MarkerArray createLineMarkerArray(const VectorMap& vmap, Color color)
+{
+  visualization_msgs::MarkerArray marker_array;
+  int id = 0;
+  for (const auto& line : vmap.findByFilter([](const Line& line){return true;}))
+  {
+    //Line line = vmap.findByKey(Key<Line>(road_edge.lid));
+    if (line.lid == 0)
+    {
+      ROS_ERROR_STREAM("[createRoadEdgeMarkerArray] invalid line: " << line);
+      continue;
+    }
+
+    if (line.blid == 0) // if beginning line
+    {
+      visualization_msgs::Marker marker = createLinkedLineMarker("Lines", id++, color, vmap, line);
+      if (isValidMarker(marker))
+        marker_array.markers.push_back(marker);
+      else
+        ROS_ERROR_STREAM("[createRoadEdgeMarkerArray] failed createLinkedLineMarker: " << line);
+    }
+  }
+  return marker_array;
 }
 
 visualization_msgs::MarkerArray createRoadEdgeMarkerArray(const VectorMap& vmap, Color color)
@@ -1238,6 +1264,7 @@ int main(int argc, char **argv)
   vmap.subscribe(nh, category);
 
   visualization_msgs::MarkerArray marker_array;
+  insertMarkerArray(marker_array, createLineMarkerArray(vmap, Color::WHITE));
   insertMarkerArray(marker_array, createRoadEdgeMarkerArray(vmap, Color::GRAY));
   insertMarkerArray(marker_array, createGutterMarkerArray(vmap, Color::GRAY, Color::GRAY, Color::GRAY));
   insertMarkerArray(marker_array, createCurbMarkerArray(vmap, Color::GRAY));
